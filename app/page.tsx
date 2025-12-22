@@ -100,6 +100,9 @@ export default function Dashboard() {
     e.preventDefault();
     if (!mobileNumber) return;
 
+    // Normalize phone number: remove all non-numeric characters
+    const normalizedPhone = mobileNumber.replace(/\D/g, '');
+
     setLoading(true);
     setError('');
     setResult(null);
@@ -109,14 +112,14 @@ export default function Dashboard() {
 
     try {
       // 1. Check DNC
-      const allowUserInfo = await checkDNCStatus(mobileNumber);
+      const allowUserInfo = await checkDNCStatus(normalizedPhone);
       if (!allowUserInfo) {
         setLoading(false);
         return;
       }
 
       // 2. Search DB
-      const searchRes = await dbService.searchOpportunityByTerm(mobileNumber);
+      const searchRes = await dbService.searchOpportunityByTerm(normalizedPhone);
       
       if (!searchRes || !searchRes.record) {
         setShowApprovedMessage(true);
@@ -237,8 +240,13 @@ export default function Dashboard() {
                         <input 
                             type="tel" 
                             value={mobileNumber}
-                            onChange={(e) => setMobileNumber(e.target.value)}
+                            onChange={(e) => {
+                                const cleaned = e.target.value.replace(/\D/g, '');
+                                setMobileNumber(cleaned);
+                            }}
                             placeholder="Enter mobile number" 
+                            pattern="[0-9]*"
+                            inputmode="numeric"
                             className="w-full pl-10 pr-4 py-3 rounded-lg focus:outline-none fancy-input transition-all duration-300"
                         />
                     </div>
