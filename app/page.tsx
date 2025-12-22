@@ -246,7 +246,7 @@ export default function Dashboard() {
                             }}
                             placeholder="Enter mobile number" 
                             pattern="[0-9]*"
-                            inputmode="numeric"
+                            inputMode="numeric"
                             className="w-full pl-10 pr-4 py-3 rounded-lg focus:outline-none fancy-input transition-all duration-300"
                         />
                     </div>
