@@ -60,22 +60,7 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
-    
-    // Check if the number is blacklisted (TCPA litigator)
-    // Based on Blacklist Alliance API response format:
-    // - results: 0 = not blacklisted, > 0 = blacklisted (found matches)
-    // - code: "none" = not blacklisted, any other value = blacklisted/flagged
-    const isBlacklisted = data && (
-      (data.results !== undefined && data.results > 0) ||  // Found in blacklist (primary indicator)
-      (data.code && data.code !== "none" && data.code !== "NONE" && data.code !== "")  // Has a flag code (secondary indicator)
-    );
-    
-    // Return standardized response format for frontend
-    return NextResponse.json({
-      blacklisted: isBlacklisted,
-      tcpa_litigator: isBlacklisted, // Alias for consistency
-      rawResponse: data, // Include raw response for debugging
-    });
+    return NextResponse.json(data);
   } catch (error) {
     console.error('Blacklist check error:', error);
     return NextResponse.json(
