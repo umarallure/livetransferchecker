@@ -1,5 +1,3 @@
-import { supabase, SUPABASE_CONFIG } from '@/lib/supabase';
-
 // Types
 export interface Lead {
     id: string;
@@ -82,111 +80,27 @@ class DatabaseService {
         };
     }
 
-    // Search for opportunities by a free-text term (name or number)
+    // Search for opportunities by a free-text term (name or number) - via Server Proxy
     async searchOpportunityByTerm(term: string): Promise<{ record: any, meta: any } | null> {
         if (!term) return null;
 
         const searchTerm = term.trim();
-        const normalizedSearchDigits = this.normalizePhoneNumber(searchTerm);
         let opportunities: any[] = [];
 
         try {
-            // Strategy 1: If term looks like a phone number, search leads table first
-            if (normalizedSearchDigits) {
-                const area = normalizedSearchDigits.slice(0,3);
-                const exchange = normalizedSearchDigits.slice(3,6);  
-                const number = normalizedSearchDigits.slice(6);
-                
-                const phoneVariations = [
-                    normalizedSearchDigits,
-                    `1${normalizedSearchDigits}`,
-                    `(${area}) ${exchange}-${number}`,
-                    `${area}-${exchange}-${number}`,
-                    `+1${normalizedSearchDigits}`,
-                    `${area}.${exchange}.${number}`,
-                    `1 (${area}) ${exchange}-${number}`,
-                    `${area} ${exchange} ${number}`,
-                    `${area}/${exchange}/${number}`,
-                    `001-${area}-${exchange}-${number}`,
-                    `+1-${area}-${exchange}-${number}`,
-                ];
-
-                let leads: any[] = [];
-                
-                for (const phoneVar of phoneVariations) {
-                    const { data: phoneLeads } = await supabase
-                        .from('leads')
-                        .select('id, phone, full_name, created_at')
-                        .eq('phone', phoneVar)
-                        .limit(20);
-                    
-                    if (phoneLeads && phoneLeads.length > 0) {
-                        leads = leads.concat(phoneLeads);
-                        break;
-                    }
-                }
-
-                if (leads.length === 0) {
-                    const digitPattern = `%${normalizedSearchDigits.slice(0,3)}%${normalizedSearchDigits.slice(3,6)}%${normalizedSearchDigits.slice(6)}%`;
-                    const { data: patternLeads } = await supabase
-                        .from('leads')
-                        .select('id, phone, full_name')
-                        .like('phone', digitPattern)
-                        .limit(50);
-                    
-                    if (patternLeads) {
-                        leads = patternLeads.filter((lead: any) => {
-                            const normalizedLeadPhone = this.normalizePhoneNumber(lead.phone);
-                            return normalizedLeadPhone === normalizedSearchDigits;
-                        });
-                    }
-                }
-
-                if (leads.length > 0) {
-                    const leadIds = leads.map(l => l.id);
-                    const { data: ops } = await supabase
-                        .from('opportunities')
-                        .select('id, lead_id, current_stage, opportunity_status, opportunity_name, status_updated_at, created_at')
-                        .in('lead_id', leadIds)
-                        .order('created_at', { ascending: false })
-                        .limit(500);
-
-                    if (ops && ops.length > 0) {
-                        opportunities = ops.map((op: any) => {
-                            const lead = leads.find(l => l.id === op.lead_id);
-                            return {
-                                opportunity_id: op.id,
-                                opportunity_name: op.opportunity_name,
-                                current_stage: op.current_stage,
-                                opportunity_status: op.opportunity_status,
-                                transfer_status: op.opportunity_status,
-                                phone: lead?.phone,
-                                full_name: lead?.full_name,
-                                status_updated_at: op.status_updated_at,
-                                opportunity_created_at: op.created_at,
-                                created_at: op.created_at
-                            };
-                        });
-                    }
-                }
+            // Call our internal API route which proxies the request to Supabase
+            const response = await fetch(`/api/search?term=${encodeURIComponent(searchTerm)}`);
+            
+            if (!response.ok) {
+                throw new Error('Database search failed via proxy');
             }
 
-            // Strategy 2: Fallback to transfer_check_view ILIKE search
-            if (opportunities.length === 0) {
-                const { data: rows } = await supabase
-                    .from('transfer_check_view')
-                    .select('*')
-                    .ilike('opportunity_name', `%${searchTerm}%`)
-                    .limit(200);
-
-                if (rows) {
-                    opportunities = rows;
-                }
-            }
+            opportunities = await response.json();
 
             if (opportunities.length === 0) {
                 return { record: null, meta: { foundCount: 0 } };
             }
+
 
             // DQ detection logic
             const isDQStage = (s: string) => {
@@ -223,19 +137,19 @@ class DatabaseService {
         }
     }
 
-    // Search for opportunities by phone number (SECURE VERSION)
+    // Search for opportunities by phone number (SECURE VERSION - via Server Proxy)
     async searchOpportunityByPhone(phoneNumber: string): Promise<Opportunity | null> {
         try {
             const normalizedPhone = this.normalizePhoneNumber(phoneNumber);
             
-            // Use secure view that only exposes safe data for transfer checking
-            const { data: transferChecks, error } = await supabase
-                .from('transfer_check_view')
-                .select('*');
-
-            if (error) {
-                throw new Error(`Secure database search failed: ${error.message}`);
+            // Call our internal API route which proxies the request to Supabase
+            const response = await fetch(`/api/search?phone=${encodeURIComponent(phoneNumber)}`);
+            
+            if (!response.ok) {
+                throw new Error('Database search failed via proxy');
             }
+
+            const transferChecks = await response.json();
 
             // Find matching opportunity by extracting phone from opportunity_name
             const matchingTransferCheck = transferChecks?.find((check: any) => {
@@ -262,30 +176,6 @@ class DatabaseService {
             return null;
         } catch (error) {
             throw error;
-        }
-    }
-
-    // Health check for database connection
-    async healthCheck(): Promise<boolean> {
-        try {
-            const { data, error } = await supabase
-                .from('transfer_check_view')
-                .select('opportunity_id')
-                .limit(1);
-
-            if (error) {
-                // Fallback to basic connection test
-                const { data: testData, error: testError } = await supabase
-                    .from('opportunities')
-                    .select('id')
-                    .limit(1);
-                
-                return !testError;
-            }
-
-            return true;
-        } catch (error) {
-            return false;
         }
     }
 }

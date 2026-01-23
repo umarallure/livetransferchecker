@@ -53,11 +53,11 @@ export default function Dashboard() {
     }
 
     try {
-        const response = await fetch('https://akdryqadcxhzqcqhssok.supabase.co/functions/v1/dnc-lookup', {
+        // Use our server-side proxy to bypass regional blocks to Supabase
+        const response = await fetch('/api/dnc-lookup', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFrZHJ5cWFkY3hoenFjcWhzc29rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3Mjg5MDQsImV4cCI6MjA2OTMwNDkwNH0.36poCyc_PGl2EnGM3283Hj5_yxRYQU2IetYl8aUA3r4'
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ mobileNumber: phone })
         });

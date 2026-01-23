@@ -1,5 +1,3 @@
-import { supabase } from '@/lib/supabase';
-
 class AuthService {
     private sessionKey = 'unlimitedInsuranceAuth';
     private userKey = 'unlimitedInsuranceUser';
@@ -40,20 +38,22 @@ class AuthService {
         return null;
     }
 
-    // Login user using Supabase authentication
+    // Login user using Supabase authentication (via Server Proxy to bypass regional blocks)
     async login(username: string, password: string): Promise<boolean> {
         try {
-            // Call the secure authentication function
-            const { data, error } = await supabase
-                .rpc('authenticate_user', {
-                    input_username: username,
-                    input_password: password
-                });
+            // Call our internal API route which proxies the request to Supabase
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
 
-            if (error) {
-                console.error('Authentication error:', error);
+            if (!response.ok) {
+                console.error('Authentication request failed');
                 return false;
             }
+
+            const data = await response.json();
 
             // Check if authentication was successful
             if (data && data.success) {
