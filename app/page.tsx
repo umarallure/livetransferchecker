@@ -66,10 +66,29 @@ export default function Dashboard() {
         if (result.status === 'success' && result.data && result.data.tcpa_litigator && result.data.tcpa_litigator.includes(phone)) {
             setDncInfo({ 
                 visible: true, 
-                text: '⚠️ TCPA LITIGATOR DETECTED - NO CONTACT PERMITTED. This number is flagged as a TCPA litigator. All transfers and contact attempts are strictly prohibited.', 
+                text: '⚠️ TCPA LITIGATOR DETECTED - NO CONTACT PERMITTED\n\nThis number is flagged as a TCPA litigator. All transfers and contact attempts are strictly prohibited.', 
                 type: 'error' 
             });
             return false; // Block
+        }
+
+        // If NOT detected as TCPA litigator, recheck using Blacklist Alliance API
+        try {
+            const blacklistResponse = await fetch(`/api/blacklist-check?number=${phone}`);
+            const blacklistData = await blacklistResponse.json();
+            
+            // Check if the number is blacklisted
+            if (blacklistData && blacklistData.blacklisted === true) {
+                setDncInfo({ 
+                    visible: true, 
+                    text: '⚠️ BLACKLISTED NUMBER DETECTED - NO CONTACT PERMITTED\n\nThis number is flagged as a TCPA litigator. All transfers and contact attempts are strictly prohibited.', 
+                    type: 'error' 
+                });
+                return false; // Block
+            }
+        } catch (blacklistErr) {
+            console.error('Blacklist Alliance API error:', blacklistErr);
+            // Continue with normal flow if blacklist check fails
         }
 
         let info = '';
