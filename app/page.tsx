@@ -77,7 +77,7 @@ export default function Dashboard() {
             const blacklistResponse = await fetch(`/api/blacklist-check?number=${phone}`);
             const blacklistData = await blacklistResponse.json();
             
-            // Check if the number is blacklisted
+            // Check if the number is blacklisted (API returns message: "Blacklisted" / code; we normalize to blacklisted boolean)
             if (blacklistData && blacklistData.blacklisted === true) {
                 setDncInfo({ 
                     visible: true, 
