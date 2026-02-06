@@ -60,17 +60,7 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
-
-    // Blacklist Alliance indicates blacklist via message, code, or results. If any is true → blacklisted.
-    const isBlacklisted =
-      (data && typeof data.message === 'string' && data.message.toLowerCase() === 'blacklisted') ||
-      (data && data.code) ||
-      (data && typeof data.results === 'number' && data.results >= 1);
-
-    return NextResponse.json({
-      ...data,
-      blacklisted: !!isBlacklisted,
-    });
+    return NextResponse.json(data);
   } catch (error) {
     console.error('Blacklist check error:', error);
     return NextResponse.json(
