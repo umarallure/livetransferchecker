@@ -24,6 +24,33 @@ export default function Dashboard() {
     existing: false
   });
 
+  const logTransferCheck = (phone: string, step: string, payload: unknown) => {
+    console.log(`[LiveTransferChecker][${phone}] ${step}`, payload);
+  };
+
+  const normalizeUsPhone = (input: string): string | null => {
+    const digits = input.replace(/\D/g, '');
+    if (digits.length === 10) return digits;
+    if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
+    return null;
+  };
+
+  const isBlacklistAllianceHit = (blacklistData: any): { blacklisted: boolean; reason: string[] } => {
+    const message = (blacklistData?.message || '').toString().toLowerCase();
+    const resultsCount =
+      typeof blacklistData?.resultsCount === 'number'
+        ? blacklistData.resultsCount
+        : (typeof blacklistData?.results === 'number' ? blacklistData.results : Number(blacklistData?.results || 0));
+
+    const reasons: string[] = [];
+    if (message.includes('blacklisted') || message.includes('plaintiff') || message.includes('litigator')) {
+      reasons.push(`message:${blacklistData?.message}`);
+    }
+    if (resultsCount > 0) reasons.push(`results:${resultsCount}`);
+
+    return { blacklisted: reasons.length > 0, reason: reasons };
+  };
+
   // Auth Check
   useEffect(() => {
     if (!authService.isAuthenticated()) {
@@ -44,15 +71,21 @@ export default function Dashboard() {
   };
 
   const checkDNCStatus = async (phone: string) => {
+    console.groupCollapsed(`[LiveTransferChecker] Checking number: ${phone}`);
     // Reset DNC info
     setDncInfo({ visible: false, text: '', type: 'info' });
 
     if (!/^[0-9]{10}$/.test(phone)) {
+        logTransferCheck(phone, 'Validation failed (must be 10 digits)', { input: phone });
         setDncInfo({ visible: true, text: 'Please enter a valid 10-digit US/Canada number for DNC check.', type: 'info' });
+        console.groupEnd();
         return true;
     }
 
     try {
+        logTransferCheck(phone, 'Calling Supabase dnc-lookup API', {
+            url: 'https://akdryqadcxhzqcqhssok.supabase.co/functions/v1/dnc-lookup'
+        });
         const response = await fetch('https://akdryqadcxhzqcqhssok.supabase.co/functions/v1/dnc-lookup', {
             method: 'POST',
             headers: {
@@ -62,28 +95,47 @@ export default function Dashboard() {
             body: JSON.stringify({ mobileNumber: phone })
         });
         const result = await response.json();
+        logTransferCheck(phone, 'Supabase dnc-lookup response', result);
 
         if (result.status === 'success' && result.data && result.data.tcpa_litigator && result.data.tcpa_litigator.includes(phone)) {
+            logTransferCheck(phone, 'Decision', {
+                blocked: true,
+                reason: 'tcpa_litigator match in Supabase response',
+                matchedList: result?.data?.tcpa_litigator
+            });
             setDncInfo({ 
                 visible: true, 
                 text: '⚠️ TCPA LITIGATOR DETECTED - NO CONTACT PERMITTED\n\nThis number is flagged as a TCPA litigator. All transfers and contact attempts are strictly prohibited.', 
                 type: 'error' 
             });
+            console.groupEnd();
             return false; // Block
         }
 
         // If NOT detected as TCPA litigator, recheck using Blacklist Alliance API
         try {
+            logTransferCheck(phone, 'Calling internal blacklist-check API', {
+                url: `/api/blacklist-check?number=${phone}`
+            });
             const blacklistResponse = await fetch(`/api/blacklist-check?number=${phone}`);
             const blacklistData = await blacklistResponse.json();
+            logTransferCheck(phone, 'Blacklist Alliance response', blacklistData);
+            const blacklistDecision = isBlacklistAllianceHit(blacklistData);
+            logTransferCheck(phone, 'Blacklist Alliance decision parse', blacklistDecision);
             
             // Check if the number is blacklisted
-            if (blacklistData && blacklistData.blacklisted === true) {
+            if (blacklistDecision.blacklisted) {
+                logTransferCheck(phone, 'Decision', {
+                    blocked: true,
+                    reason: 'Blacklisted based on Blacklist Alliance response',
+                    decisionEvidence: blacklistDecision.reason
+                });
                 setDncInfo({ 
                     visible: true, 
                     text: '⚠️ BLACKLISTED NUMBER DETECTED - NO CONTACT PERMITTED\n\nThis number is flagged as a TCPA litigator. All transfers and contact attempts are strictly prohibited.', 
                     type: 'error' 
                 });
+                console.groupEnd();
                 return false; // Block
             }
         } catch (blacklistErr) {
@@ -108,9 +160,21 @@ export default function Dashboard() {
         }
 
         setDncInfo({ visible: true, text: info, type: 'info' });
+        logTransferCheck(phone, 'Decision', {
+            blocked: false,
+            reason: 'No blocking flags from Supabase or Blacklist Alliance',
+            infoText: info
+        });
+        console.groupEnd();
         return true; // Allow
     } catch (err) {
+        logTransferCheck(phone, 'Decision', {
+            blocked: false,
+            reason: 'DNC lookup failed; current logic allows on error',
+            error: err
+        });
         setDncInfo({ visible: true, text: 'Error checking DNC status.', type: 'info' });
+        console.groupEnd();
         return true; // Allow on error
     }
   };
@@ -119,8 +183,23 @@ export default function Dashboard() {
     e.preventDefault();
     if (!mobileNumber) return;
 
-    // Normalize phone number: remove all non-numeric characters
-    const normalizedPhone = mobileNumber.replace(/\D/g, '');
+    const normalizedPhone = normalizeUsPhone(mobileNumber);
+    logTransferCheck((normalizedPhone || mobileNumber.replace(/\D/g, '')), 'Search started', {
+      rawInput: mobileNumber,
+      normalizedPhone,
+    });
+
+    if (!normalizedPhone) {
+      setDncInfo({
+        visible: true,
+        text: 'Please enter a valid US/Canada number (10 digits, or 11 digits starting with 1).',
+        type: 'info',
+      });
+      setResult(null);
+      setShowApprovedMessage(false);
+      setWarnings({ policy: false, dq: false, existing: false });
+      return;
+    }
 
     setLoading(true);
     setError('');
@@ -139,6 +218,7 @@ export default function Dashboard() {
 
       // 2. Search DB
       const searchRes = await dbService.searchOpportunityByTerm(normalizedPhone);
+      logTransferCheck(normalizedPhone, 'Database search result', searchRes);
       
       if (!searchRes || !searchRes.record) {
         setShowApprovedMessage(true);

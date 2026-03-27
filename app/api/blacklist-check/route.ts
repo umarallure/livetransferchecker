@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+function parseBlacklistAllianceDecision(data: any) {
+  const message = (data?.message || '').toString().toLowerCase();
+  const resultsCount = typeof data?.results === 'number' ? data.results : Number(data?.results || 0);
+  const messageBased =
+    message.includes('blacklisted') ||
+    message.includes('plaintiff') ||
+    message.includes('litigator');
+  const resultBased = resultsCount > 0;
+  const blacklisted = messageBased || resultBased;
+  const reason = [
+    messageBased ? `message:${data?.message}` : null,
+    resultBased ? `results:${resultsCount}` : null,
+  ].filter(Boolean);
+
+  return { blacklisted, reason, resultsCount };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -43,6 +60,11 @@ export async function GET(request: NextRequest) {
     // URL encode the phone number
     const encodedPhone = encodeURIComponent(formattedPhone);
 
+    console.log('[BlacklistAlliance][server] lookup request', {
+      incomingNumber: number,
+      formattedPhone,
+    });
+
     // Call Blacklist Alliance API with correct format
     // Use 'key' and 'phone' parameters (not 'apiKey' and 'number')
     const response = await fetch(
@@ -62,7 +84,24 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    const decision = parseBlacklistAllianceDecision(data);
+
+    console.log('[BlacklistAlliance][server] raw response summary', {
+      status: data?.status,
+      message: data?.message,
+      code: data?.code,
+      phone: data?.phone,
+      results: data?.results,
+      blacklisted: decision.blacklisted,
+      blacklistReason: decision.reason,
+    });
+
+    return NextResponse.json({
+      ...data,
+      blacklisted: decision.blacklisted,
+      blacklistReason: decision.reason,
+      resultsCount: decision.resultsCount,
+    });
   } catch (error) {
     console.error('Blacklist check error:', error);
     return NextResponse.json(
